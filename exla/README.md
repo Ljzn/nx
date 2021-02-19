@@ -25,10 +25,10 @@ You will need the following installed in your system to compile EXLA:
 
   * [Git](https://git-scm.com/) for checking out Tensorflow
   * [Bazel v3.7.x](https://bazel.build/) for compiling Tensorflow (note Bazel v4 is available but it is not compatible)
-  * [Python3](https://python.org) with numpy installed (`pip3 install numpy`) for compiling Tensorflow
+  * [Python3](https://python.org) for compiling Tensorflow
 
 If running on Windows, you will also need:
-  
+
   * [MSYS2](https://www.msys2.org/)
   * [Microsoft Build Tools 2019](https://visualstudio.microsoft.com/downloads/)
   * [Microsoft Visual C++ 2019 Redistributable](https://visualstudio.microsoft.com/downloads/)
