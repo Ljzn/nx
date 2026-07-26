@@ -709,6 +709,344 @@ defmodule Nx.LinAlg.EigMultiShiftQR do
   end
 
   # ──────────────────────────────────────
+  #  DTREXC + DLAEXC: eigenvalue reordering
+  # ──────────────────────────────────────
+
+  @doc """
+  DTREXC: reorder diagonal block IFST to position ILST in Schur form T.
+  Returns {t, q, info, ifst_out, ilst_out}.
+  """
+  def dtrexc(t, q, n, ifst_in, ilst_in, compq \\ "V") do
+    wantq = compq == "V"
+    ifst = ifst_in
+    ilst = ilst_in
+
+    # Quick return
+    cond do
+      n <= 1 ->
+        {t, q, 0, ifst, ilst}
+      ifst == ilst ->
+        {t, q, 0, ifst, ilst}
+      true ->
+        # Determine IFST block size
+        ifst = if ifst > 1 and f_get(t, n, ifst, ifst - 1) != 0.0, do: ifst - 1, else: ifst
+        nbf = if ifst < n and f_get(t, n, ifst + 1, ifst) != 0.0, do: 2, else: 1
+
+        # Determine ILST block size
+        ilst = if ilst > 1 and f_get(t, n, ilst, ilst - 1) != 0.0, do: ilst - 1, else: ilst
+        nbl = if ilst < n and f_get(t, n, ilst + 1, ilst) != 0.0, do: 2, else: 1
+
+        if ifst < ilst do
+          ilst2 = cond do
+            nbf == 2 and nbl == 1 -> ilst - 1
+            nbf == 1 and nbl == 2 -> ilst + 1
+            true -> ilst
+          end
+          move_block_down(t, q, n, ifst, nbf, ilst2, wantq)
+        else
+          move_block_up(t, q, n, ifst, nbf, ilst, wantq)
+        end
+    end
+  end
+
+  defp move_block_down(t, q, n, here, nbf, ilst, wantq) do
+    if here >= ilst do
+      {t, q, 0, here, ilst}
+    else
+      # Determine size of next block below
+      nbnext = 1
+      nbnext = if here + nbf + 1 <= n and f_get(t, n, here + nbf + 1, here + nbf) != 0.0, do: 2, else: nbnext
+
+      {t, q, info} = dlaexc(t, q, n, here, nbf, nbnext, wantq)
+      if info != 0 do
+        {t, q, info, here, ilst}
+      else
+        here2 = here + nbnext
+        nbf2 = if nbf == 2 do
+          if f_get(t, n, here2 + 1, here2) == 0.0, do: 3, else: nbf
+        else
+          nbf
+        end
+        move_block_down(t, q, n, here2, nbf2, ilst, wantq)
+      end
+    end
+  end
+
+  defp move_block_up(t, q, n, here, nbf, ilst, wantq) do
+    if here <= ilst do
+      {t, q, 0, here, ilst}
+    else
+      nbnext = 1
+      nbnext = if here >= 3 and f_get(t, n, here - 1, here - 2) != 0.0, do: 2, else: nbnext
+
+      {t, q, info} = dlaexc(t, q, n, here - nbnext, nbnext, nbf, wantq)
+      if info != 0 do
+        {t, q, info, here, ilst}
+      else
+        here2 = here - nbnext
+        nbf2 = if nbf == 2 do
+          if f_get(t, n, here2 + 1, here2) == 0.0, do: 3, else: nbf
+        else
+          nbf
+        end
+        move_block_up(t, q, n, here2, nbf2, ilst, wantq)
+      end
+    end
+  end
+
+  @doc """
+  DLAEXC: swap adjacent blocks of sizes N1 and N2 (1 or 2 each).
+  """
+  def dlaexc(t, q, n, j1, n1, n2, wantq) do
+    cond do
+      n1 == 1 and n2 == 1 ->
+        swap_1x1_1x1(t, q, n, j1, wantq)
+      n1 == 1 and n2 == 2 ->
+        swap_1x1_2x2(t, q, n, j1, wantq)
+      n1 == 2 and n2 == 1 ->
+        swap_2x2_1x1(t, q, n, j1, wantq)
+      n1 == 2 and n2 == 2 ->
+        swap_2x2_2x2(t, q, n, j1, wantq)
+      true ->
+        {t, q, 0}
+    end
+  end
+
+  # Swap 1x1 with 1x1
+  defp swap_1x1_1x1(t, q, n, j1, wantq) do
+    t11 = f_get(t, n, j1, j1)
+    t22 = f_get(t, n, j1 + 1, j1 + 1)
+    cs = 0.0; sn = 0.0
+
+    # Use DLANV2 for the 2x2 submatrix
+    {_aa, _bb, _cc, _dd, rt1r, _rt1i, rt2r, _rt2i, cs_out, sn_out} =
+      Nx.LinAlg.EigSchur.dlanv2(t11, f_get(t, n, j1, j1 + 1), f_get(t, n, j1 + 1, j1), t22)
+
+    # Apply rotation to T
+    t = if abs(sn_out) > 1.0e-15 do
+      # Rotate rows j1:j1+1, cols j1+1:n
+      Enum.reduce((j1 + 1)..n, t, fn j, acc ->
+        t1j = f_get(acc, n, j1, j)
+        t2j = f_get(acc, n, j1 + 1, j)
+        acc |> f_set(n, j1, j, cs_out * t1j + sn_out * t2j)
+             |> f_set(n, j1 + 1, j, -sn_out * t1j + cs_out * t2j)
+      end)
+      # Rotate cols 1:j1+1, rows j1:j1+1
+      Enum.reduce(1..(j1 + 1), t, fn i, acc ->
+        ti1 = f_get(acc, n, i, j1)
+        ti2 = f_get(acc, n, i, j1 + 1)
+        acc |> f_set(n, i, j1, cs_out * ti1 + sn_out * ti2)
+             |> f_set(n, i, j1 + 1, -sn_out * ti1 + cs_out * ti2)
+      end)
+    else
+      t
+    end
+
+    q = if wantq do
+      Enum.reduce(1..n, q, fn i, acc ->
+        qi1 = f_get(acc, n, i, j1)
+        qi2 = f_get(acc, n, i, j1 + 1)
+        acc |> f_set(n, i, j1, cs_out * qi1 + sn_out * qi2)
+             |> f_set(n, i, j1 + 1, -sn_out * qi1 + cs_out * qi2)
+      end)
+    else
+      q
+    end
+
+    {t, q, 0}
+  end
+
+  # Swap 1x1 with 2x2
+  defp swap_1x1_2x2(t, q, n, j1, wantq) do
+    # T11 is at (j1, j1), T22 is at (j1+1:j1+2, j1+1:j1+2)
+    # Using DLANV2 on the 3x3 submatrix + orthogonal chase
+
+    eps = Nx.LinAlg.EigUtil.dlamch("P")
+    smlnum = Nx.LinAlg.EigUtil.dlamch("S") * (n / eps)
+
+    # Extract the 3x3 block
+    a11 = f_get(t, n, j1, j1)
+    a12 = f_get(t, n, j1, j1 + 1)
+    a13 = f_get(t, n, j1, j1 + 2)
+    a21 = f_get(t, n, j1 + 1, j1)
+    a22 = f_get(t, n, j1 + 1, j1 + 1)
+    a23 = f_get(t, n, j1 + 1, j1 + 2)
+    a31 = f_get(t, n, j1 + 2, j1)
+    a32 = f_get(t, n, j1 + 2, j1 + 1)
+    a33 = f_get(t, n, j1 + 2, j1 + 2)
+
+    # Threshold for zero
+    thresh = max(10.0 * smlnum, 10.0 * eps * max(abs(a11), max(abs(a22), abs(a33))))
+
+    # Compute eigenvalues of the 2x2 block T22
+    {_aa2, _bb2, _cc2, _dd2, wr1, wi1, wr2, wi2, cs2, sn2} =
+      Nx.LinAlg.EigSchur.dlanv2(a22, a23, a32, a33)
+
+    # Try to find a Givens rotation that zeros out a21
+    # This is a simplified approach; full LAPACK uses DLASY2
+    # For now, use a direct 3x3 transformation approach
+
+    # Build full 3x3 matrix and apply DLAQR1-style bulge
+    h3 = [[a11, a12, a13], [a21, a22, a23], [a31, a32, a33]]
+    v = dlaqr1(3, h3, wr1, wi1, wr2, wi2)
+    v_norm = Enum.reduce(v, 0.0, fn x, acc -> acc + abs(x) end)
+    v = if v_norm == 0.0, do: [0.0, 0.0, 0.0], else: Enum.map(v, &(&1 / v_norm))
+
+    {v_ref, tau_b, _beta_b} = Nx.LinAlg.EigHouseholder.dlarfg(Nx.tensor(v, type: :f64))
+    v_b = Nx.to_flat_list(v_ref)
+
+    # Apply to T
+    t1b = Enum.at(v_b, 0); t2b = t1b * Enum.at(v_b, 1); t3b = t1b * Enum.at(v_b, 2)
+
+    # Apply from right: T(j1:j1+2, j1+2:n) = T(...) - tau * v * (v' * T(...))
+    Enum.reduce((j1 + 2)..n, t, fn j, acc ->
+      refsum = f_get(acc, n, j1, j) + Enum.at(v_b, 1) * f_get(acc, n, j1 + 1, j) +
+               Enum.at(v_b, 2) * f_get(acc, n, j1 + 2, j)
+      acc |> f_set(n, j1, j, f_get(acc, n, j1, j) - refsum * t1b)
+          |> f_set(n, j1 + 1, j, f_get(acc, n, j1 + 1, j) - refsum * t2b)
+          |> f_set(n, j1 + 2, j, f_get(acc, n, j1 + 2, j) - refsum * t3b)
+    end)
+
+    # Apply from left: T(1:j1+2, j1:j1+2) = (...) * H
+    Enum.reduce(1..(j1 + 2), t, fn i, acc ->
+      refsum = f_get(acc, n, i, j1) + Enum.at(v_b, 1) * f_get(acc, n, i, j1 + 1) +
+               Enum.at(v_b, 2) * f_get(acc, n, i, j1 + 2)
+      acc |> f_set(n, i, j1, f_get(acc, n, i, j1) - refsum * t1b)
+          |> f_set(n, i, j1 + 1, f_get(acc, n, i, j1 + 1) - refsum * t2b)
+          |> f_set(n, i, j1 + 2, f_get(acc, n, i, j1 + 2) - refsum * t3b)
+    end)
+
+    # Update Q
+    q = if wantq do
+      Enum.reduce(1..n, q, fn i, acc ->
+        refsum = f_get(acc, n, i, j1) + Enum.at(v_b, 1) * f_get(acc, n, i, j1 + 1) +
+                 Enum.at(v_b, 2) * f_get(acc, n, i, j1 + 2)
+        acc |> f_set(n, i, j1, f_get(acc, n, i, j1) - refsum * t1b)
+            |> f_set(n, i, j1 + 1, f_get(acc, n, i, j1 + 1) - refsum * t2b)
+            |> f_set(n, i, j1 + 2, f_get(acc, n, i, j1 + 2) - refsum * t3b)
+      end)
+    else
+      q
+    end
+
+    # Check if T22 broke into two 1x1 blocks
+    hk1k = f_get(t, n, j1 + 1, j1)
+    if abs(hk1k) <= thresh do
+      t = f_set(t, n, j1 + 1, j1, 0.0)
+    end
+
+    {t, q, 0}
+  end
+
+  # Swap 2x2 with 1x1 (transpose of swap_1x1_2x2)
+  defp swap_2x2_1x1(t, q, n, j1, wantq) do
+    # Transpose the 1x1↔2x2 algorithm — move T11 down
+    # First convert 2x2 to Schur via DLANV2, then use DLAQR1-style bulge
+    eps = Nx.LinAlg.EigUtil.dlamch("P")
+    smlnum = Nx.LinAlg.EigUtil.dlamch("S") * (n / eps)
+
+    a11 = f_get(t, n, j1, j1); a12 = f_get(t, n, j1, j1 + 1); a13 = f_get(t, n, j1, j1 + 2)
+    a21 = f_get(t, n, j1 + 1, j1); a22 = f_get(t, n, j1 + 1, j1 + 1); a23 = f_get(t, n, j1 + 1, j1 + 2)
+    a31 = f_get(t, n, j1 + 2, j1); a32 = f_get(t, n, j1 + 2, j1 + 1); a33 = f_get(t, n, j1 + 2, j1 + 2)
+    thresh = max(10.0 * smlnum, 10.0 * eps * max(abs(a11), max(abs(a22), abs(a33))))
+
+    # Compute eigenvalue of the 1x1 block (a33) and the 2x2 block
+    {_aa2, _bb2, _cc2, _dd2, wr1, wi1, _wr2, _wi2, _cs2, _sn2} =
+      Nx.LinAlg.EigSchur.dlanv2(a11, a12, a21, a22)
+
+    h3 = [[a11, a12, a13], [a21, a22, a23], [a31, a32, a33]]
+    v = dlaqr1(3, h3, wr1, wi1, a33, 0.0)
+    v_norm = Enum.reduce(v, 0.0, fn x, acc -> acc + abs(x) end)
+    v = if v_norm == 0.0, do: [0.0, 0.0, 0.0], else: Enum.map(v, &(&1 / v_norm))
+
+    {v_ref, tau_b, _beta_b} = Nx.LinAlg.EigHouseholder.dlarfg(Nx.tensor(v, type: :f64))
+    v_b = Nx.to_flat_list(v_ref)
+    t1b = Enum.at(v_b, 0); t2b = t1b * Enum.at(v_b, 1); t3b = t1b * Enum.at(v_b, 2)
+
+    Enum.reduce((j1 + 2)..n, t, fn j, acc ->
+      refsum = f_get(acc, n, j1, j) + Enum.at(v_b, 1) * f_get(acc, n, j1 + 1, j) +
+               Enum.at(v_b, 2) * f_get(acc, n, j1 + 2, j)
+      acc |> f_set(n, j1, j, f_get(acc, n, j1, j) - refsum * t1b)
+          |> f_set(n, j1 + 1, j, f_get(acc, n, j1 + 1, j) - refsum * t2b)
+          |> f_set(n, j1 + 2, j, f_get(acc, n, j1 + 2, j) - refsum * t3b)
+    end)
+
+    Enum.reduce(1..(j1 + 2), t, fn i, acc ->
+      refsum = f_get(acc, n, i, j1) + Enum.at(v_b, 1) * f_get(acc, n, i, j1 + 1) +
+               Enum.at(v_b, 2) * f_get(acc, n, i, j1 + 2)
+      acc |> f_set(n, i, j1, f_get(acc, n, i, j1) - refsum * t1b)
+          |> f_set(n, i, j1 + 1, f_get(acc, n, i, j1 + 1) - refsum * t2b)
+          |> f_set(n, i, j1 + 2, f_get(acc, n, i, j1 + 2) - refsum * t3b)
+    end)
+
+    q = if wantq do
+      Enum.reduce(1..n, q, fn i, acc ->
+        refsum = f_get(acc, n, i, j1) + Enum.at(v_b, 1) * f_get(acc, n, i, j1 + 1) +
+                 Enum.at(v_b, 2) * f_get(acc, n, i, j1 + 2)
+        acc |> f_set(n, i, j1, f_get(acc, n, i, j1) - refsum * t1b)
+            |> f_set(n, i, j1 + 1, f_get(acc, n, i, j1 + 1) - refsum * t2b)
+            |> f_set(n, i, j1 + 2, f_get(acc, n, i, j1 + 2) - refsum * t3b)
+      end)
+    else
+      q
+    end
+
+    hk1k = f_get(t, n, j1 + 1, j1)
+    if abs(hk1k) <= thresh do
+      t = f_set(t, n, j1 + 1, j1, 0.0)
+    end
+
+    {t, q, 0}
+  end
+
+  # Swap 2x2 with 2x2 (simplified — use multiple 1x1/2x2 swaps)
+  defp swap_2x2_2x2(t, q, n, j1, wantq) do
+    # Split the first 2x2 block into two 1x1s using DLANV2
+    {aa, bb, cc, dd, _r1r, r1i, _r2r, _r2i, cs, sn} =
+      Nx.LinAlg.EigSchur.dlanv2(
+        f_get(t, n, j1, j1), f_get(t, n, j1, j1 + 1),
+        f_get(t, n, j1 + 1, j1), f_get(t, n, j1 + 1, j1 + 1))
+
+    t = t |> f_set(n, j1, j1, aa) |> f_set(n, j1, j1 + 1, bb)
+          |> f_set(n, j1 + 1, j1, cc) |> f_set(n, j1 + 1, j1 + 1, dd)
+
+    # Apply rotation to remaining columns
+    Enum.reduce((j1 + 2)..n, t, fn j, acc ->
+      t1 = f_get(acc, n, j1, j); t2 = f_get(acc, n, j1 + 1, j)
+      acc |> f_set(n, j1, j, cs * t1 + sn * t2)
+          |> f_set(n, j1 + 1, j, -sn * t1 + cs * t2)
+    end)
+
+    Enum.reduce(1..(j1 - 1), t, fn i, acc ->
+      t1 = f_get(acc, n, i, j1); t2 = f_get(acc, n, i, j1 + 1)
+      acc |> f_set(n, i, j1, cs * t1 + sn * t2)
+          |> f_set(n, i, j1 + 1, -sn * t1 + cs * t2)
+    end)
+
+    q = if wantq do
+      Enum.reduce(1..n, q, fn i, acc ->
+        q1 = f_get(acc, n, i, j1); q2 = f_get(acc, n, i, j1 + 1)
+        acc |> f_set(n, i, j1, cs * q1 + sn * q2)
+            |> f_set(n, i, j1 + 1, -sn * q1 + cs * q2)
+      end)
+    else
+      q
+    end
+
+    if r1i == 0.0 do
+      # Two real eigenvalues — use two 1x1↔2x2 swaps
+      {t, q, _} = swap_1x1_2x2(t, q, n, j1, wantq)
+      {t, q, _} = swap_1x1_2x2(t, q, n, j1 + 1, wantq)
+      {t, q, 0}
+    else
+      # Complex pair — use 2x2↔1x1 then 2x2↔1x1
+      {t, q, _} = swap_2x2_1x1(t, q, n, j1, wantq)
+      {t, q, _} = swap_2x2_1x1(t, q, n, j1 + 1, wantq)
+      {t, q, 0}
+    end
+  end
+
+  # ──────────────────────────────────────
   #  DLAQR0: top-level multi-shift QR
   # ──────────────────────────────────────
 
