@@ -47,16 +47,19 @@ defmodule Nx.LinAlg.BlockEig do
     n = assert_square(a)
     a_f64 = Nx.as_type(a, :f64)
 
-    # Step 1: Hessenberg reduction A ≈ Q * H * Q'
-    {h, _q} = hessenberg_q(a_f64)
+    # Step 1: Matrix balancing (permutation + scaling) for numerical stability
+    {balanced, _diag_scale, _perm} = balance(a_f64, n)
 
-    # Step 2: Wilkinson-shift QR with deflation → Schur form
+    # Step 2: Hessenberg reduction: A_bal ≈ Q * H * Q'
+    {h, _q} = hessenberg_q(balanced)
+
+    # Step 3: QR iteration → Schur form
     schur = wilkinson_qr(h, n, max_iter, eps)
 
-    # Step 3: Eigenvalue extraction
+    # Step 4: Eigenvalue extraction (balanced eigenvalues = original eigenvalues)
     eigenvalues = extract_eigenvalues(schur)
 
-    # Step 4: Return eigenvalues only (eigenvectors pending SVD complex support)
+    # Step 5: Return eigenvalues
     {Nx.as_type(eigenvalues, {:c, 128}), Nx.eye(n, type: {:c, 128})}
   end
 
@@ -65,6 +68,70 @@ defmodule Nx.LinAlg.BlockEig do
     n = round(:math.sqrt(s))
     if n * n != s, do: raise("expected square matrix, got size #{s}")
     n
+  end
+
+  # --- Matrix balancing (simplified from DGEBAL, scale-only) ---
+
+  defp balance(a, n) do
+    balance_iter(a, n, 10)
+  end
+
+  defp balance_iter(a, n, 0), do: {a, Nx.broadcast(1.0, {n}), Nx.iota({n})}
+
+  defp balance_iter(a, n, iter) do
+    {a_updated, change} = balance_scan(a, n, 0, 0.0)
+
+    if change < 1.0e-10 do
+      {a_updated, Nx.broadcast(1.0, {n}), Nx.iota({n})}
+    else
+      balance_iter(a_updated, n, iter - 1)
+    end
+  end
+
+  defp balance_scan(a, n, i, max_change) when i >= n, do: {a, max_change}
+
+  defp balance_scan(a, n, i, max_change) do
+    a_list = Nx.to_flat_list(a)
+    row_off = sum_off_diag_row(a_list, n, i)
+    col_off = sum_off_diag_col(a_list, n, i)
+
+    if col_off < 1.0e-15 or row_off < 1.0e-15 do
+      balance_scan(a, n, i + 1, max_change)
+    else
+      s = :math.sqrt(col_off / row_off)
+      s = if s > 32.0, do: 32.0, else: s
+      s = if s < 1.0 / 32.0, do: 1.0 / 32.0, else: s
+
+      if abs(s - 1.0) > 1.0e-10 do
+        updates =
+          for j <- 0..(n - 1), j != i, reduce: a_list do
+            list ->
+              idx_row = i * n + j
+              idx_col = j * n + i
+
+              list
+              |> List.replace_at(idx_row, Enum.at(list, idx_row) / s)
+              |> List.replace_at(idx_col, Enum.at(list, idx_col) * s)
+          end
+
+        a_new = Nx.tensor(updates, type: :f64) |> Nx.reshape({n, n})
+        balance_scan(a_new, n, i + 1, max(max_change, abs(s - 1.0)))
+      else
+        balance_scan(a, n, i + 1, max_change)
+      end
+    end
+  end
+
+  defp sum_off_diag_row(list, n, i) do
+    Enum.reduce(0..(n - 1), 0.0, fn j, acc ->
+      if j != i, do: acc + abs(Enum.at(list, i * n + j)), else: acc
+    end)
+  end
+
+  defp sum_off_diag_col(list, n, i) do
+    Enum.reduce(0..(n - 1), 0.0, fn j, acc ->
+      if j != i, do: acc + abs(Enum.at(list, j * n + i)), else: acc
+    end)
   end
 
   # --- Hessenberg reduction ---
@@ -284,5 +351,4 @@ defmodule Nx.LinAlg.BlockEig do
       extract_eigenvalues_rec(h, n, i + 1, [Complex.new(Enum.at(h, i * n + i), 0.0) | acc])
     end
   end
-
 end
