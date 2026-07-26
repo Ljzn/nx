@@ -1462,8 +1462,7 @@ defmodule Nx.LinAlg do
       {%{tensor | names: eigenvals_name, type: output_type, shape: eigenvals_shape},
        %{tensor | names: eigenvecs_name, type: output_type, shape: eigenvecs_shape}}
 
-    Nx.block(struct!(Nx.Block.LinAlg.Eig, opts), [tensor], output, fn %Nx.Block.LinAlg.Eig{},
-                                                                       t ->
+    Nx.block(struct!(Nx.Block.LinAlg.Eig, opts), [tensor], output, fn %Nx.Block.LinAlg.Eig{}, t ->
       Nx.LinAlg.BlockEig.eig(t, opts)
     end)
     |> Nx.vectorize(vectorized_axes)
