@@ -61,7 +61,7 @@ defmodule NxLinAlg.EigMultiShiftQRTest do
     end
 
     test "invalid n returns empty list" do
-      assert EigMultiShiftQR.dlaqr1(4, [[1,0],[0,1]], 1.0, 0.0, 2.0, 0.0) == []
+      assert EigMultiShiftQR.dlaqr1(4, [[1, 0], [0, 1]], 1.0, 0.0, 2.0, 0.0) == []
     end
   end
 end

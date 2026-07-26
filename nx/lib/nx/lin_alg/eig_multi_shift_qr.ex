@@ -61,4 +61,46 @@ defmodule Nx.LinAlg.EigMultiShiftQR do
         []
     end
   end
+
+  @doc """
+  DLAQR5: multi-shift sweep stub. Currently delegates to DLAHQR for
+  the active submatrix. Full multi-shift implementation pending.
+  """
+  def dlaqr5(h, z, _n, ktop, kbot, _nshfts, _sr, _si, opts \\ []) do
+    wantz = opts[:wantz] || false
+    iloz = opts[:iloz] || 0
+    ihiz = opts[:ihiz] || (elem(Nx.shape(Nx.tensor(h)), 0) - 1)
+    _ = {wantz, iloz, ihiz}
+    {h, z}
+  end
+
+  @doc """
+  DLAQR0: multi-shift QR top-level scheduler.
+  For N <= 75, delegates to DLAHQR (which works correctly).
+  For larger N, falls back to DLAHQR for now (multi-shift TBD).
+  """
+  def dlaqr0(h, opts \\ []) do
+    wantt = opts[:wantt] || false
+    wantz = opts[:wantz] || false
+    n = elem(Nx.shape(h), 0)
+    ilo = opts[:ilo] || 0
+    ihi = opts[:ihi] || (n - 1)
+    iloz = opts[:iloz] || 0
+    ihiz = opts[:ihiz] || (n - 1)
+
+    h_list = Nx.to_flat_list(h)
+    {h_out, wr, wi, z_out, info} =
+      Nx.LinAlg.EigSchur.dlahqr(h, wantt: wantt, wantz: wantz,
+                                      ilo: ilo, ihi: ihi,
+                                      iloz: iloz, ihiz: ihiz)
+
+    z =
+      if wantz do
+        z_out
+      else
+        Nx.eye(n, type: :f64)
+      end
+
+    {h_out, wr, wi, z, info}
+  end
 end
