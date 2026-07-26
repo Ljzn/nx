@@ -82,7 +82,7 @@ defmodule Nx.LinAlg.BlockEig do
       for k <- 0..(n - 3)//1, reduce: {a, q} do
         {h_acc, q_acc} ->
           x = Nx.slice(h_acc, [k + 1, k], [n - k - 1, 1]) |> Nx.reshape({n - k - 1})
-          {v, tau, _} = householder(x)
+          {v, tau, _} = Nx.LinAlg.EigHouseholder.dlarfg(x)
 
           if tau == 0.0 do
             {h_acc, q_acc}
@@ -98,34 +98,6 @@ defmodule Nx.LinAlg.BlockEig do
       end
 
     {h, q_final}
-  end
-
-  # --- Householder reflector ---
-
-  defp householder(x) do
-    n = Nx.size(x)
-    x0 = Nx.to_number(Nx.reshape(x[0..0], {}))
-
-    if n == 1 do
-      {Nx.tensor([1.0], type: :f64), 0.0, x0}
-    else
-      tail = x[1..-1//1]
-      sigma = Nx.sum(Nx.pow(tail, 2)) |> Nx.to_number()
-
-      if sigma < 1.0e-300 do
-        {Nx.concatenate([Nx.tensor([1.0]), Nx.broadcast(0.0, {n - 1})]), 0.0, x0}
-      else
-        norm = :math.sqrt(x0 * x0 + sigma)
-
-        {beta, u0} =
-          if x0 < 0, do: {norm, x0 - norm}, else: {-norm, x0 + norm}
-
-        v_tail = Nx.divide(tail, u0)
-        v = Nx.concatenate([Nx.tensor([1.0]), v_tail])
-        vn = Nx.sum(Nx.pow(v_tail, 2)) |> Nx.to_number()
-        {v, 2.0 / (1.0 + vn), beta}
-      end
-    end
   end
 
   # --- Wilkinson-shift QR iteration with deflation ---
