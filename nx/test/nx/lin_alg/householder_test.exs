@@ -17,10 +17,13 @@ defmodule NxLinAlg.EigHouseholderTest do
       # Just verify it doesn't crash and produces reasonable values
       {v, tau, beta} = EigHouseholder.dlarfg(x)
       n = 2
-      h = Nx.subtract(
-        Nx.eye(n, type: :f64),
-        Nx.multiply(tau, Nx.dot(Nx.reshape(v, {n, 1}), Nx.reshape(v, {1, n})))
-      )
+
+      h =
+        Nx.subtract(
+          Nx.eye(n, type: :f64),
+          Nx.multiply(tau, Nx.dot(Nx.reshape(v, {n, 1}), Nx.reshape(v, {1, n})))
+        )
+
       hx = Nx.dot(h, x)
 
       assert abs(Nx.to_number(hx[1])) < 1.0e-6
@@ -31,10 +34,13 @@ defmodule NxLinAlg.EigHouseholderTest do
       {v, tau, _beta} = EigHouseholder.dlarfg(x)
 
       n = 2
-      h = Nx.subtract(
-        Nx.eye(n, type: :f64),
-        Nx.multiply(tau, Nx.dot(Nx.reshape(v, {n, 1}), Nx.reshape(v, {1, n})))
-      )
+
+      h =
+        Nx.subtract(
+          Nx.eye(n, type: :f64),
+          Nx.multiply(tau, Nx.dot(Nx.reshape(v, {n, 1}), Nx.reshape(v, {1, n})))
+        )
+
       hx = Nx.dot(h, x)
 
       assert abs(Nx.to_number(hx[1])) < 1.0e-7
@@ -45,10 +51,13 @@ defmodule NxLinAlg.EigHouseholderTest do
       {v, tau, _beta} = EigHouseholder.dlarfg(x)
 
       n = 5
-      h = Nx.subtract(
-        Nx.eye(n, type: :f64),
-        Nx.multiply(tau, Nx.dot(Nx.reshape(v, {n, 1}), Nx.reshape(v, {1, n})))
-      )
+
+      h =
+        Nx.subtract(
+          Nx.eye(n, type: :f64),
+          Nx.multiply(tau, Nx.dot(Nx.reshape(v, {n, 1}), Nx.reshape(v, {1, n})))
+        )
+
       hth = Nx.dot(Nx.transpose(h), h)
       assert_all_close(hth, Nx.eye(n, type: :f64), 1.0e-6)
     end
@@ -69,18 +78,22 @@ defmodule NxLinAlg.EigHouseholderTest do
 
   describe "dlarf/4" do
     test "left application equals explicit H*A" do
-      a = Nx.tensor([[1.0, 2.0, 3.0],
-                     [4.0, 5.0, 6.0],
-                     [7.0, 8.0, 9.0]], type: :f64)
+      a =
+        Nx.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
+          type: :f64
+        )
+
       x_row = a[0..0] |> Nx.flatten()
       {v, tau, _} = EigHouseholder.dlarfg(x_row)
       n = Nx.size(v)
 
       # Explicit H
-      h = Nx.subtract(
-        Nx.eye(n, type: :f64),
-        Nx.multiply(tau, Nx.dot(Nx.reshape(v, {n, 1}), Nx.reshape(v, {1, n})))
-      )
+      h =
+        Nx.subtract(
+          Nx.eye(n, type: :f64),
+          Nx.multiply(tau, Nx.dot(Nx.reshape(v, {n, 1}), Nx.reshape(v, {1, n})))
+        )
+
       expected = Nx.dot(h, a)
 
       result = Nx.LinAlg.EigHouseholder.dlarf(v, tau, a, :left)
@@ -88,17 +101,21 @@ defmodule NxLinAlg.EigHouseholderTest do
     end
 
     test "right application equals explicit A*H" do
-      a = Nx.tensor([[1.0, 2.0, 3.0],
-                     [4.0, 5.0, 6.0],
-                     [7.0, 8.0, 9.0]], type: :f64)
+      a =
+        Nx.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
+          type: :f64
+        )
+
       x_col = Nx.transpose(a)[0..0] |> Nx.flatten()
       {v, tau, _} = EigHouseholder.dlarfg(x_col)
       n = Nx.size(v)
 
-      h = Nx.subtract(
-        Nx.eye(n, type: :f64),
-        Nx.multiply(tau, Nx.dot(Nx.reshape(v, {n, 1}), Nx.reshape(v, {1, n})))
-      )
+      h =
+        Nx.subtract(
+          Nx.eye(n, type: :f64),
+          Nx.multiply(tau, Nx.dot(Nx.reshape(v, {n, 1}), Nx.reshape(v, {1, n})))
+        )
+
       expected = Nx.dot(a, h)
 
       result = Nx.LinAlg.EigHouseholder.dlarf(v, tau, a, :right)

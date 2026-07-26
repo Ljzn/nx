@@ -13,17 +13,26 @@ defmodule Nx.LinAlg.EigUtil do
   def dlamch(cmach) do
     # IEEE 754 double precision constants
     case String.upcase(cmach) do
-      "E" -> 2.2204460492503131e-16   # eps: relative machine precision
-      "S" -> 2.2250738585072014e-308  # sfmin: safe minimum (tiny)
-      "B" -> 2.0                       # base: radix
-      "P" -> 2.2204460492503131e-16   # prec: eps * base
-      "N" -> 53                        # t: mantissa digits
-      "R" -> 1.0                       # rnd: rounding mode (1=?) 
-
-      "M" -> -1021                     # emin: minimum exponent
-      "U" -> 2.2250738585072014e-308  # underflow threshold
-      "L" -> -1021 + 53 - 1            # emin - 1 + t
-      "O" -> 1.7976931348623157e+308  # overflow threshold
+      # eps: relative machine precision
+      "E" -> 2.2204460492503131e-16
+      # sfmin: safe minimum (tiny)
+      "S" -> 2.2250738585072014e-308
+      # base: radix
+      "B" -> 2.0
+      # prec: eps * base
+      "P" -> 2.2204460492503131e-16
+      # t: mantissa digits
+      "N" -> 53
+      # rnd: rounding mode (1=?) 
+      "R" -> 1.0
+      # emin: minimum exponent
+      "M" -> -1021
+      # underflow threshold
+      "U" -> 2.2250738585072014e-308
+      # emin - 1 + t
+      "L" -> -1021 + 53 - 1
+      # overflow threshold
+      "O" -> 1.7976931348623157e+308
       _ -> raise ArgumentError, "dlamch: unknown cmach=#{inspect(cmach)}"
     end
   end
@@ -34,24 +43,42 @@ defmodule Nx.LinAlg.EigUtil do
   """
   def ilaenv(ispec, _name \\ "", _opts \\ "", _n1 \\ 0, _n2 \\ 0, _n3 \\ 0, _n4 \\ 0)
 
-  def ilaenv(1, _, _, _, _, _, _), do: 64    # NB: optimal block size
-  def ilaenv(2, _, _, _, _, _, _), do: 2     # NBMIN: minimum block size
-  def ilaenv(3, _, _, _, _, _, _), do: 32    # NX: crossover point
-  def ilaenv(4, _, _, _, _, _, _), do: 64    # NXB: minimum block size for blocking
-  def ilaenv(5, _, _, _, _, _, _), do: 32    # NBIT: number of bits in integer
-  def ilaenv(6, _, _, _, _, _, _), do: 2     # NBMIN for DORMQR
-  def ilaenv(7, _, _, _, _, _, _), do: 2     # NBMIN for DORMLQ
-  def ilaenv(8, _, _, _, _, _, _), do: 64    # NB for DGEQRF
-  def ilaenv(9, _, _, _, _, _, _), do: 64    # NB for DORMQR
-  def ilaenv(10, _, _, _, _, _, _), do: 64   # NB for DORMLQ
-  def ilaenv(11, _, _, _, _, _, _), do: 64   # NB for DGEBRD
-  def ilaenv(12, _, _, _, _, _, _), do: 75   # NMIN: crossover for DHSEQR
-  def ilaenv(13, _, _, _, _, _, _), do: 1    # KCL: clustering threshold
-  def ilaenv(14, _, _, _, _, _, _), do: 3    # NIBBLE: nibble interval
-  def ilaenv(15, _, _, _, _, _, _), do: 128  # MAXB: max block size
-  def ilaenv(16, _, _, _, _, _, _), do: 3    # NBMIN for DLARFB
-  def ilaenv(17, _, _, _, _, _, _), do: 64   # NB for multi-shift QR
-  def ilaenv(18, _, _, _, _, _, _), do: 3    # NSWEEP: number of sweeps (unused)
+  # NB: optimal block size
+  def ilaenv(1, _, _, _, _, _, _), do: 64
+  # NBMIN: minimum block size
+  def ilaenv(2, _, _, _, _, _, _), do: 2
+  # NX: crossover point
+  def ilaenv(3, _, _, _, _, _, _), do: 32
+  # NXB: minimum block size for blocking
+  def ilaenv(4, _, _, _, _, _, _), do: 64
+  # NBIT: number of bits in integer
+  def ilaenv(5, _, _, _, _, _, _), do: 32
+  # NBMIN for DORMQR
+  def ilaenv(6, _, _, _, _, _, _), do: 2
+  # NBMIN for DORMLQ
+  def ilaenv(7, _, _, _, _, _, _), do: 2
+  # NB for DGEQRF
+  def ilaenv(8, _, _, _, _, _, _), do: 64
+  # NB for DORMQR
+  def ilaenv(9, _, _, _, _, _, _), do: 64
+  # NB for DORMLQ
+  def ilaenv(10, _, _, _, _, _, _), do: 64
+  # NB for DGEBRD
+  def ilaenv(11, _, _, _, _, _, _), do: 64
+  # NMIN: crossover for DHSEQR
+  def ilaenv(12, _, _, _, _, _, _), do: 75
+  # KCL: clustering threshold
+  def ilaenv(13, _, _, _, _, _, _), do: 1
+  # NIBBLE: nibble interval
+  def ilaenv(14, _, _, _, _, _, _), do: 3
+  # MAXB: max block size
+  def ilaenv(15, _, _, _, _, _, _), do: 128
+  # NBMIN for DLARFB
+  def ilaenv(16, _, _, _, _, _, _), do: 3
+  # NB for multi-shift QR
+  def ilaenv(17, _, _, _, _, _, _), do: 64
+  # NSWEEP: number of sweeps (unused)
+  def ilaenv(18, _, _, _, _, _, _), do: 3
 
   @doc """
   Error handler (LAPACK XERBLA). Raises an ArgumentError.

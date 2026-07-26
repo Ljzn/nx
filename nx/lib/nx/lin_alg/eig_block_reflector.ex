@@ -34,21 +34,24 @@ defmodule Nx.LinAlg.EigBlockReflector do
                 v_list = Nx.to_flat_list(v)
 
                 # W = V[:, 0:i-1]' * V[:, i] (size i)
-                w = for j <- 0..(i - 1) do
-                  Enum.reduce(0..(n - 1), 0.0, fn r, acc ->
-                    acc + Enum.at(v_list, r * k + j) * Enum.at(v_list, r * k + i)
-                  end)
-                end
+                w =
+                  for j <- 0..(i - 1) do
+                    Enum.reduce(0..(n - 1), 0.0, fn r, acc ->
+                      acc + Enum.at(v_list, r * k + j) * Enum.at(v_list, r * k + i)
+                    end)
+                  end
 
                 # Extract T[0:i-1, 0:i-1] 
-                tw = for j <- 0..(i - 1) do
-                  Enum.reduce(0..(i - 1), 0.0, fn r, acc ->
-                    acc + Enum.at(t_acc, r * k + j) * Enum.at(w, r)
-                  end)
-                end
+                tw =
+                  for j <- 0..(i - 1) do
+                    Enum.reduce(0..(i - 1), 0.0, fn r, acc ->
+                      acc + Enum.at(t_acc, r * k + j) * Enum.at(w, r)
+                    end)
+                  end
 
                 # T[0:i-1, i] = -tau_i * tw
                 tw_scaled = Enum.map(tw, fn val -> -tau_i * val end)
+
                 Enum.reduce(0..(i - 1), t_acc, fn j, acc ->
                   List.replace_at(acc, j * k + i, Enum.at(tw_scaled, j))
                 end)

@@ -49,6 +49,7 @@ defmodule Nx.LinAlg.EigBalance do
           if i >= ilo - 1 and i <= ihi - 1 do
             # Row i: multiply by 1/SCALE[i] (right eigenvectors)
             s = 1.0 / Enum.at(scale, i)
+
             Enum.map(0..(n - 1), fn j ->
               idx = i * n + j
               Enum.at(acc, idx) * s
@@ -98,8 +99,10 @@ defmodule Nx.LinAlg.EigBalance do
       # Swap row 'current' with row IHI and column 'current' with column IHI
       a_swapped = swap_row_and_col(a, n, current, ihi)
       # Track permutation in scale array (negative for permutation)
-      new_scale = List.update_at(scale, current, fn _ -> -ihi - 1 end)
-                   |> List.update_at(ihi, fn _ -> -current - 1 end)
+      new_scale =
+        List.update_at(scale, current, fn _ -> -ihi - 1 end)
+        |> List.update_at(ihi, fn _ -> -current - 1 end)
+
       scan_swap_rows(a_swapped, n, ilo, ihi - 1, ihi - 1, new_scale)
     else
       scan_swap_rows(a, n, ilo, ihi, current - 1, scale)
@@ -120,8 +123,11 @@ defmodule Nx.LinAlg.EigBalance do
 
     if col_nonzeros == 1 do
       a_swapped = swap_row_and_col(a, n, current, ilo)
-      new_scale = List.update_at(scale, current, fn _ -> -ilo - 1 end)
-                   |> List.update_at(ilo, fn _ -> -current - 1 end)
+
+      new_scale =
+        List.update_at(scale, current, fn _ -> -ilo - 1 end)
+        |> List.update_at(ilo, fn _ -> -current - 1 end)
+
       scan_swap_cols(a_swapped, n, ilo + 1, ihi, ilo + 1, new_scale)
     else
       scan_swap_cols(a, n, ilo, ihi, current + 1, scale)

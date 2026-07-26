@@ -53,8 +53,8 @@ defmodule Nx.LinAlg.EigHouseholder do
   def dlarf(v, tau, a, side \\ :left)
 
   def dlarf(v, tau, a, :left) do
-    n = Nx.size(v)
-    m = div(Nx.size(a), n)
+    m = Nx.size(v)
+    n = div(Nx.size(a), m)
     a2 = Nx.reshape(a, {m, n})
 
     # H * A = A - tau * v * (v' * A)
