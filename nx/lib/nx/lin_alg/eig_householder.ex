@@ -15,35 +15,29 @@ defmodule Nx.LinAlg.EigHouseholder do
   """
   def dlarfg(x) do
     n = Nx.size(x)
-    x0 = Nx.to_number(Nx.reshape(x[0..0], {}))
 
     if n == 1 do
-      {Nx.tensor([1.0], type: :f64), 0.0, x0}
+      {Nx.tensor([1.0], type: :f64), 0.0, Nx.to_number(Nx.reshape(x[0..0], {}))}
     else
-      tail = x[1..-1//1]
-      sigma = Nx.sum(Nx.pow(Nx.abs(tail), 2)) |> Nx.to_number()
-      alpha = x0
+      alpha = Nx.to_number(Nx.reshape(x[0..0], {}))
+      xnorm = Nx.to_number(Nx.LinAlg.norm(x[1..-1//1]))
 
-      if sigma == 0.0 and alpha >= 0.0 do
+      if xnorm == 0.0 do
         {Nx.concatenate([Nx.tensor([1.0]), Nx.broadcast(0.0, {n - 1})]), 0.0, alpha}
       else
-        norm = :math.sqrt(alpha * alpha + sigma)
+        # LAPACK DLARFG:
+        # beta = -sign(alpha) * ||x||
+        norm = :math.sqrt(alpha * alpha + xnorm * xnorm)
+        beta = if alpha > 0, do: -norm, else: norm
 
-        # DLARFG formula from LAPACK
-        {beta, scale} =
-          if alpha <= 0.0 do
-            {alpha - norm, 1.0}
-          else
-            {-sigma / (alpha + norm), norm}
-          end
-
-        # Compute v(2:n) = tail / scale
-        v_tail = Nx.divide(tail, scale)
+        # v = [1, x(2:)/(alpha - beta)]
+        # alpha - beta = alpha + sign(alpha)*norm
+        denom = alpha - beta
+        v_tail = Nx.divide(x[1..-1//1], denom)
         v = Nx.concatenate([Nx.tensor([1.0]), v_tail])
 
-        # tau = 2 * v(1)^2 / (v'v) = 2 / (1 + v_tail'v_tail)
-        vn = Nx.sum(Nx.pow(Nx.abs(v_tail), 2)) |> Nx.to_number()
-        tau = 2.0 / (1.0 + vn)
+        # tau = (beta - alpha) / beta
+        tau = if beta == 0.0, do: 0.0, else: (beta - alpha) / beta
 
         {v, tau, beta}
       end
