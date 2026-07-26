@@ -2,6 +2,7 @@ defmodule Nx.LinAlg.EigBlockReflector do
   @moduledoc """
   Block reflector operations (DLARFT + DLARFB).
   """
+  import Nx.Defn
 
   @doc """
   DLARFT: Compute T from V (n×k, columns include v[0]=1) and tau (k).
@@ -68,19 +69,14 @@ defmodule Nx.LinAlg.EigBlockReflector do
   @doc """
   DLARFB: Apply H = I - V * T * V' to matrix C.
   """
-  def dlarfb(v, t, c, side \\ :left)
+  def dlarfb(v, t, c, :left), do: dlarfb_left(v, t, c)
+  def dlarfb(v, t, c, :right), do: dlarfb_right(v, t, c)
 
-  def dlarfb(v, t, c, :left) do
-    vt_c = Nx.dot(Nx.transpose(v), c)
-    t_vtc = Nx.dot(t, vt_c)
-    correction = Nx.dot(v, t_vtc)
-    Nx.subtract(c, correction)
+  defnp dlarfb_left(v, t, c) do
+    c - Nx.dot(v, Nx.dot(t, Nx.dot(Nx.transpose(v), c)))
   end
 
-  def dlarfb(v, t, c, :right) do
-    c_v = Nx.dot(c, v)
-    cv_t = Nx.dot(c_v, t)
-    correction = Nx.dot(cv_t, Nx.transpose(v))
-    Nx.subtract(c, correction)
+  defnp dlarfb_right(v, t, c) do
+    c - Nx.dot(Nx.dot(Nx.dot(c, v), t), Nx.transpose(v))
   end
 end

@@ -4,6 +4,7 @@ defmodule Nx.LinAlg.EigHouseholder do
 
   Ported from LAPACK DLARFG (generate) and DLARF1F (apply).
   """
+  import Nx.Defn
 
   @doc """
   DLARFG: Generate an elementary reflector (Householder).
@@ -50,31 +51,22 @@ defmodule Nx.LinAlg.EigHouseholder do
   side = :left:   H * A
   side = :right:  A * H
   """
-  def dlarf(v, tau, a, side \\ :left)
+  def dlarf(v, tau, a, :left), do: dlarf_left(v, tau, a)
+  def dlarf(v, tau, a, :right), do: dlarf_right(v, tau, a)
 
-  def dlarf(v, tau, a, :left) do
-    m = Nx.size(v)
-    n = div(Nx.size(a), m)
-    a2 = Nx.reshape(a, {m, n})
-
-    # H * A = A - tau * v * (v' * A)
+  defnp dlarf_left(v, tau, a) do
     vt = Nx.new_axis(v, 0)
     v_c = Nx.new_axis(v, 1)
-    vta = Nx.dot(vt, a2)
+    vta = Nx.dot(vt, a)
     correction = Nx.dot(v_c, Nx.multiply(tau, vta))
-    Nx.subtract(a2, correction)
+    Nx.subtract(a, correction)
   end
 
-  def dlarf(v, tau, a, :right) do
-    n = Nx.size(v)
-    m = div(Nx.size(a), n)
-    a2 = Nx.reshape(a, {m, n})
-
-    # A * H = A - tau * (A * v) * v'
+  defnp dlarf_right(v, tau, a) do
     v_c = Nx.new_axis(v, 1)
     vt = Nx.new_axis(v, 0)
-    av = Nx.dot(a2, v_c)
+    av = Nx.dot(a, v_c)
     correction = Nx.dot(Nx.multiply(tau, av), vt)
-    Nx.subtract(a2, correction)
+    Nx.subtract(a, correction)
   end
 end
