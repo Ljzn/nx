@@ -1092,4 +1092,84 @@ defmodule Nx.LinAlgTest do
       end
     end
   end
+
+  describe "eig" do
+    test "1x1 matrix" do
+      {evals, _} = Nx.LinAlg.eig(Nx.tensor([[5.0]]))
+      [e] = Nx.to_flat_list(evals)
+      assert abs(Nx.to_number(Nx.real(Nx.tensor(e)))) - 5.0 < 1.0e-10
+    end
+
+    test "2x2 diagonal" do
+      a = Nx.tensor([[3.0, 0.0], [0.0, 5.0]])
+      {evals, _} = Nx.LinAlg.eig(a)
+      vals = Enum.sort_by(Nx.to_flat_list(evals), &(-:math.sqrt(&1.re * &1.re + &1.im * &1.im)))
+
+      assert_in_delta(
+        :math.sqrt((Enum.at(vals, 0).re - 5.0) ** 2 + Enum.at(vals, 0).im ** 2),
+        0,
+        1.0e-10
+      )
+
+      assert_in_delta(
+        :math.sqrt((Enum.at(vals, 1).re - 3.0) ** 2 + Enum.at(vals, 1).im ** 2),
+        0,
+        1.0e-10
+      )
+    end
+
+    test "2x2 upper triangular" do
+      a = Nx.tensor([[1.0, 2.0], [0.0, 4.0]])
+      {evals, _} = Nx.LinAlg.eig(a)
+      vals = Enum.sort_by(Nx.to_flat_list(evals), &(-:math.sqrt(&1.re * &1.re + &1.im * &1.im)))
+
+      assert_in_delta(
+        :math.sqrt((Enum.at(vals, 0).re - 4.0) ** 2 + Enum.at(vals, 0).im ** 2),
+        0,
+        1.0e-10
+      )
+
+      assert_in_delta(
+        :math.sqrt((Enum.at(vals, 1).re - 1.0) ** 2 + Enum.at(vals, 1).im ** 2),
+        0,
+        1.0e-10
+      )
+    end
+
+    test "2x2 complex eigenvalues" do
+      a = Nx.tensor([[1.0, 2.0], [-2.0, 1.0]])
+      {evals, _} = Nx.LinAlg.eig(a)
+      vals = Nx.to_flat_list(evals)
+      # Each eigenvalue should have real=1, imag=±2
+      Enum.each(vals, fn v ->
+        assert_in_delta v.re, 1.0, 1.0e-8
+        assert_in_delta abs(v.im), 2.0, 1.0e-8
+      end)
+    end
+
+    test "3x3 with repeated eigenvalue" do
+      a = Nx.tensor([[1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 2.0]])
+      {evals, _} = Nx.LinAlg.eig(a)
+      assert Nx.size(evals) == 3
+      real_parts = Nx.to_flat_list(Nx.real(evals)) |> Enum.sort()
+      assert_in_delta Enum.at(real_parts, 0), 1.0, 1.0e-8
+      assert_in_delta Enum.at(real_parts, 1), 1.0, 1.0e-8
+      assert_in_delta Enum.at(real_parts, 2), 2.0, 1.0e-8
+    end
+
+    test "3x3 tridiagonal" do
+      a = Nx.tensor([[2.0, -1.0, 0.0], [-1.0, 2.0, -1.0], [0.0, -1.0, 2.0]])
+      {evals, _} = Nx.LinAlg.eig(a)
+      assert Nx.size(evals) == 3
+    end
+
+    test "20x20 diagonal" do
+      a = Nx.tensor(for i <- 1..20, do: for(j <- 1..20, do: if(i == j, do: i * 1.0, else: 0.0)))
+      {evals, _} = Nx.LinAlg.eig(a)
+      assert Nx.size(evals) == 20
+      real_parts = Nx.to_flat_list(Nx.real(evals)) |> Enum.sort()
+      # Expect eigenvalues 1..20
+      Enum.each(0..19, fn i -> assert_in_delta(Enum.at(real_parts, i), i + 1, 1.0e-8) end)
+    end
+  end
 end
