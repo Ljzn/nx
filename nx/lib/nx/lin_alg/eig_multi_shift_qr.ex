@@ -725,8 +725,10 @@ defmodule Nx.LinAlg.EigMultiShiftQR do
     cond do
       n <= 1 ->
         {t, q, 0, ifst, ilst}
+
       ifst == ilst ->
         {t, q, 0, ifst, ilst}
+
       true ->
         # Determine IFST block size
         ifst = if ifst > 1 and f_get(t, n, ifst, ifst - 1) != 0.0, do: ifst - 1, else: ifst
@@ -737,11 +739,13 @@ defmodule Nx.LinAlg.EigMultiShiftQR do
         nbl = if ilst < n and f_get(t, n, ilst + 1, ilst) != 0.0, do: 2, else: 1
 
         if ifst < ilst do
-          ilst2 = cond do
-            nbf == 2 and nbl == 1 -> ilst - 1
-            nbf == 1 and nbl == 2 -> ilst + 1
-            true -> ilst
-          end
+          ilst2 =
+            cond do
+              nbf == 2 and nbl == 1 -> ilst - 1
+              nbf == 1 and nbl == 2 -> ilst + 1
+              true -> ilst
+            end
+
           move_block_down(t, q, n, ifst, nbf, ilst2, wantq)
         else
           move_block_up(t, q, n, ifst, nbf, ilst, wantq)
@@ -755,18 +759,26 @@ defmodule Nx.LinAlg.EigMultiShiftQR do
     else
       # Determine size of next block below
       nbnext = 1
-      nbnext = if here + nbf + 1 <= n and f_get(t, n, here + nbf + 1, here + nbf) != 0.0, do: 2, else: nbnext
+
+      nbnext =
+        if here + nbf + 1 <= n and f_get(t, n, here + nbf + 1, here + nbf) != 0.0,
+          do: 2,
+          else: nbnext
 
       {t, q, info} = dlaexc(t, q, n, here, nbf, nbnext, wantq)
+
       if info != 0 do
         {t, q, info, here, ilst}
       else
         here2 = here + nbnext
-        nbf2 = if nbf == 2 do
-          if f_get(t, n, here2 + 1, here2) == 0.0, do: 3, else: nbf
-        else
-          nbf
-        end
+
+        nbf2 =
+          if nbf == 2 do
+            if f_get(t, n, here2 + 1, here2) == 0.0, do: 3, else: nbf
+          else
+            nbf
+          end
+
         move_block_down(t, q, n, here2, nbf2, ilst, wantq)
       end
     end
@@ -780,15 +792,19 @@ defmodule Nx.LinAlg.EigMultiShiftQR do
       nbnext = if here >= 3 and f_get(t, n, here - 1, here - 2) != 0.0, do: 2, else: nbnext
 
       {t, q, info} = dlaexc(t, q, n, here - nbnext, nbnext, nbf, wantq)
+
       if info != 0 do
         {t, q, info, here, ilst}
       else
         here2 = here - nbnext
-        nbf2 = if nbf == 2 do
-          if f_get(t, n, here2 + 1, here2) == 0.0, do: 3, else: nbf
-        else
-          nbf
-        end
+
+        nbf2 =
+          if nbf == 2 do
+            if f_get(t, n, here2 + 1, here2) == 0.0, do: 3, else: nbf
+          else
+            nbf
+          end
+
         move_block_up(t, q, n, here2, nbf2, ilst, wantq)
       end
     end
@@ -801,249 +817,235 @@ defmodule Nx.LinAlg.EigMultiShiftQR do
     cond do
       n1 == 1 and n2 == 1 ->
         swap_1x1_1x1(t, q, n, j1, wantq)
+
       n1 == 1 and n2 == 2 ->
         swap_1x1_2x2(t, q, n, j1, wantq)
+
       n1 == 2 and n2 == 1 ->
         swap_2x2_1x1(t, q, n, j1, wantq)
+
       n1 == 2 and n2 == 2 ->
         swap_2x2_2x2(t, q, n, j1, wantq)
+
       true ->
         {t, q, 0}
     end
   end
 
-  # Swap 1x1 with 1x1
+  # DLARTG wrapper
+  defp dlartg(f, g) do
+    Nx.LinAlg.EigBlas.dlartg(f, g)
+  end
+
+  # LAPACK-exact 1x1 ↔ 1x1: DLARTG + DROT
   defp swap_1x1_1x1(t, q, n, j1, wantq) do
+    j2 = j1 + 1
+    j3 = j1 + 2
     t11 = f_get(t, n, j1, j1)
-    t22 = f_get(t, n, j1 + 1, j1 + 1)
-    cs = 0.0; sn = 0.0
+    t22 = f_get(t, n, j2, j2)
+    {cs, sn, _r} = dlartg(f_get(t, n, j1, j2), t22 - t11)
 
-    # Use DLANV2 for the 2x2 submatrix
-    {_aa, _bb, _cc, _dd, rt1r, _rt1i, rt2r, _rt2i, cs_out, sn_out} =
-      Nx.LinAlg.EigSchur.dlanv2(t11, f_get(t, n, j1, j1 + 1), f_get(t, n, j1 + 1, j1), t22)
+    {t, _} =
+      if j3 <= n do
+        {Enum.reduce(j3..n, t, fn j, a ->
+           t1j = f_get(a, n, j1, j)
+           t2j = f_get(a, n, j2, j)
+           a |> f_set(n, j1, j, cs * t1j + sn * t2j) |> f_set(n, j2, j, -sn * t1j + cs * t2j)
+         end), nil}
+      else
+        {t, nil}
+      end
 
-    # Apply rotation to T
-    t = if abs(sn_out) > 1.0e-15 do
-      # Rotate rows j1:j1+1, cols j1+1:n
-      Enum.reduce((j1 + 1)..n, t, fn j, acc ->
-        t1j = f_get(acc, n, j1, j)
-        t2j = f_get(acc, n, j1 + 1, j)
-        acc |> f_set(n, j1, j, cs_out * t1j + sn_out * t2j)
-             |> f_set(n, j1 + 1, j, -sn_out * t1j + cs_out * t2j)
+    t =
+      Enum.reduce(1..(j1 - 1), t, fn i, a ->
+        ti1 = f_get(a, n, i, j1)
+        ti2 = f_get(a, n, i, j2)
+        a |> f_set(n, i, j1, cs * ti1 + sn * ti2) |> f_set(n, i, j2, -sn * ti1 + cs * ti2)
       end)
-      # Rotate cols 1:j1+1, rows j1:j1+1
-      Enum.reduce(1..(j1 + 1), t, fn i, acc ->
-        ti1 = f_get(acc, n, i, j1)
-        ti2 = f_get(acc, n, i, j1 + 1)
-        acc |> f_set(n, i, j1, cs_out * ti1 + sn_out * ti2)
-             |> f_set(n, i, j1 + 1, -sn_out * ti1 + cs_out * ti2)
-      end)
-    else
-      t
-    end
 
-    q = if wantq do
-      Enum.reduce(1..n, q, fn i, acc ->
-        qi1 = f_get(acc, n, i, j1)
-        qi2 = f_get(acc, n, i, j1 + 1)
-        acc |> f_set(n, i, j1, cs_out * qi1 + sn_out * qi2)
-             |> f_set(n, i, j1 + 1, -sn_out * qi1 + cs_out * qi2)
-      end)
-    else
-      q
-    end
+    t = t |> f_set(n, j1, j1, t22) |> f_set(n, j2, j2, t11)
+
+    q =
+      if wantq do
+        Enum.reduce(1..n, q, fn i, a ->
+          qi1 = f_get(a, n, i, j1)
+          qi2 = f_get(a, n, i, j2)
+          a |> f_set(n, i, j1, cs * qi1 + sn * qi2) |> f_set(n, i, j2, -sn * qi1 + cs * qi2)
+        end)
+      else
+        q
+      end
 
     {t, q, 0}
   end
 
-  # Swap 1x1 with 2x2
+  # DLASY2-based swaps (LAPACK-exact)
   defp swap_1x1_2x2(t, q, n, j1, wantq) do
-    # T11 is at (j1, j1), T22 is at (j1+1:j1+2, j1+1:j1+2)
-    # Using DLANV2 on the 3x3 submatrix + orthogonal chase
-
+    j2 = j1 + 1
+    j3 = j1 + 2
+    nd = 3
+    d = for i <- 1..nd, j <- 1..nd, do: f_get(t, n, j1 + i - 1, j1 + j - 1)
+    dnorm = Enum.reduce(d, 0.0, &max(abs(&1), &2))
     eps = Nx.LinAlg.EigUtil.dlamch("P")
-    smlnum = Nx.LinAlg.EigUtil.dlamch("S") * (n / eps)
+    smlnum = Nx.LinAlg.EigUtil.dlamch("S") / eps
+    thresh = max(10.0 * eps * dnorm, smlnum)
+    tl = [Enum.at(d, 0)]
+    tr = [Enum.at(d, 4), Enum.at(d, 5), Enum.at(d, 7), Enum.at(d, 8)]
+    b12 = [Enum.at(d, 1), Enum.at(d, 2)]
+    {scale, xf, _, _} = dlasy2(false, false, -1, 1, 2, tl, tr, b12)
+    u = [scale, Enum.at(xf, 0), Enum.at(xf, 2)]
+    {href, tau, _} = Nx.LinAlg.EigHouseholder.dlarfg(Nx.tensor(u, type: :f64))
+    uf = Nx.to_flat_list(href)
+    uf = [Enum.at(uf, 0), Enum.at(uf, 1), 1.0]
+    t11o = f_get(t, n, j1, j1)
+    d2 = dla_hh("L", 3, 3, uf, tau, d)
+    d2 = dla_hh("R", 3, 3, uf, tau, d2)
 
-    # Extract the 3x3 block
-    a11 = f_get(t, n, j1, j1)
-    a12 = f_get(t, n, j1, j1 + 1)
-    a13 = f_get(t, n, j1, j1 + 2)
-    a21 = f_get(t, n, j1 + 1, j1)
-    a22 = f_get(t, n, j1 + 1, j1 + 1)
-    a23 = f_get(t, n, j1 + 1, j1 + 2)
-    a31 = f_get(t, n, j1 + 2, j1)
-    a32 = f_get(t, n, j1 + 2, j1 + 1)
-    a33 = f_get(t, n, j1 + 2, j1 + 2)
+    if max(abs(d4_d(d2, 3, 1)), max(abs(d4_d(d2, 3, 2)), abs(d4_d(d2, 3, 3) - t11o))) > thresh,
+      do: {t, q, 1}
 
-    # Threshold for zero
-    thresh = max(10.0 * smlnum, 10.0 * eps * max(abs(a11), max(abs(a22), abs(a33))))
-
-    # Compute eigenvalues of the 2x2 block T22
-    {_aa2, _bb2, _cc2, _dd2, wr1, wi1, wr2, wi2, cs2, sn2} =
-      Nx.LinAlg.EigSchur.dlanv2(a22, a23, a32, a33)
-
-    # Try to find a Givens rotation that zeros out a21
-    # This is a simplified approach; full LAPACK uses DLASY2
-    # For now, use a direct 3x3 transformation approach
-
-    # Build full 3x3 matrix and apply DLAQR1-style bulge
-    h3 = [[a11, a12, a13], [a21, a22, a23], [a31, a32, a33]]
-    v = dlaqr1(3, h3, wr1, wi1, wr2, wi2)
-    v_norm = Enum.reduce(v, 0.0, fn x, acc -> acc + abs(x) end)
-    v = if v_norm == 0.0, do: [0.0, 0.0, 0.0], else: Enum.map(v, &(&1 / v_norm))
-
-    {v_ref, tau_b, _beta_b} = Nx.LinAlg.EigHouseholder.dlarfg(Nx.tensor(v, type: :f64))
-    v_b = Nx.to_flat_list(v_ref)
-
-    # Apply to T
-    t1b = Enum.at(v_b, 0); t2b = t1b * Enum.at(v_b, 1); t3b = t1b * Enum.at(v_b, 2)
-
-    # Apply from right: T(j1:j1+2, j1+2:n) = T(...) - tau * v * (v' * T(...))
-    Enum.reduce((j1 + 2)..n, t, fn j, acc ->
-      refsum = f_get(acc, n, j1, j) + Enum.at(v_b, 1) * f_get(acc, n, j1 + 1, j) +
-               Enum.at(v_b, 2) * f_get(acc, n, j1 + 2, j)
-      acc |> f_set(n, j1, j, f_get(acc, n, j1, j) - refsum * t1b)
-          |> f_set(n, j1 + 1, j, f_get(acc, n, j1 + 1, j) - refsum * t2b)
-          |> f_set(n, j1 + 2, j, f_get(acc, n, j1 + 2, j) - refsum * t3b)
-    end)
-
-    # Apply from left: T(1:j1+2, j1:j1+2) = (...) * H
-    Enum.reduce(1..(j1 + 2), t, fn i, acc ->
-      refsum = f_get(acc, n, i, j1) + Enum.at(v_b, 1) * f_get(acc, n, i, j1 + 1) +
-               Enum.at(v_b, 2) * f_get(acc, n, i, j1 + 2)
-      acc |> f_set(n, i, j1, f_get(acc, n, i, j1) - refsum * t1b)
-          |> f_set(n, i, j1 + 1, f_get(acc, n, i, j1 + 1) - refsum * t2b)
-          |> f_set(n, i, j1 + 2, f_get(acc, n, i, j1 + 2) - refsum * t3b)
-    end)
-
-    # Update Q
-    q = if wantq do
-      Enum.reduce(1..n, q, fn i, acc ->
-        refsum = f_get(acc, n, i, j1) + Enum.at(v_b, 1) * f_get(acc, n, i, j1 + 1) +
-                 Enum.at(v_b, 2) * f_get(acc, n, i, j1 + 2)
-        acc |> f_set(n, i, j1, f_get(acc, n, i, j1) - refsum * t1b)
-            |> f_set(n, i, j1 + 1, f_get(acc, n, i, j1 + 1) - refsum * t2b)
-            |> f_set(n, i, j1 + 2, f_get(acc, n, i, j1 + 2) - refsum * t3b)
-      end)
-    else
-      q
-    end
-
-    # Check if T22 broke into two 1x1 blocks
-    hk1k = f_get(t, n, j1 + 1, j1)
-    if abs(hk1k) <= thresh do
-      t = f_set(t, n, j1 + 1, j1, 0.0)
-    end
-
+    t = dla_store(t, d2, n, j1, 3, 3)
+    t = t |> f_set(n, j3, j1, 0.0) |> f_set(n, j3, j2, 0.0) |> f_set(n, j3, j3, t11o)
+    q = if wantq, do: dla_q(q, n, j1, 3, uf, tau), else: q
     {t, q, 0}
   end
 
-  # Swap 2x2 with 1x1 (transpose of swap_1x1_2x2)
   defp swap_2x2_1x1(t, q, n, j1, wantq) do
-    # Transpose the 1x1↔2x2 algorithm — move T11 down
-    # First convert 2x2 to Schur via DLANV2, then use DLAQR1-style bulge
+    j2 = j1 + 1
+    j3 = j1 + 2
+    nd = 3
+    d = for i <- 1..nd, j <- 1..nd, do: f_get(t, n, j1 + i - 1, j1 + j - 1)
+    dnorm = Enum.reduce(d, 0.0, &max(abs(&1), &2))
     eps = Nx.LinAlg.EigUtil.dlamch("P")
-    smlnum = Nx.LinAlg.EigUtil.dlamch("S") * (n / eps)
+    smlnum = Nx.LinAlg.EigUtil.dlamch("S") / eps
+    thresh = max(10.0 * eps * dnorm, smlnum)
+    tl = [Enum.at(d, 0), Enum.at(d, 1), Enum.at(d, 3), Enum.at(d, 4)]
+    tr = [Enum.at(d, 8)]
+    b12 = [Enum.at(d, 2), Enum.at(d, 5)]
+    {scale, xf, _, _} = dlasy2(false, false, -1, 2, 1, tl, tr, b12)
+    u = [-Enum.at(xf, 0), -Enum.at(xf, 1), scale]
+    {href, tau, _} = Nx.LinAlg.EigHouseholder.dlarfg(Nx.tensor(u, type: :f64))
+    uf = Nx.to_flat_list(href)
+    uf = [1.0, Enum.at(uf, 1), Enum.at(uf, 2)]
+    t33o = f_get(t, n, j3, j3)
+    d2 = dla_hh("L", 3, 3, uf, tau, d)
+    d2 = dla_hh("R", 3, 3, uf, tau, d2)
 
-    a11 = f_get(t, n, j1, j1); a12 = f_get(t, n, j1, j1 + 1); a13 = f_get(t, n, j1, j1 + 2)
-    a21 = f_get(t, n, j1 + 1, j1); a22 = f_get(t, n, j1 + 1, j1 + 1); a23 = f_get(t, n, j1 + 1, j1 + 2)
-    a31 = f_get(t, n, j1 + 2, j1); a32 = f_get(t, n, j1 + 2, j1 + 1); a33 = f_get(t, n, j1 + 2, j1 + 2)
-    thresh = max(10.0 * smlnum, 10.0 * eps * max(abs(a11), max(abs(a22), abs(a33))))
+    if max(abs(d4_d(d2, 2, 1)), max(abs(d4_d(d2, 3, 1)), abs(d4_d(d2, 1, 1) - t33o))) > thresh,
+      do: {t, q, 1}
 
-    # Compute eigenvalue of the 1x1 block (a33) and the 2x2 block
-    {_aa2, _bb2, _cc2, _dd2, wr1, wi1, _wr2, _wi2, _cs2, _sn2} =
-      Nx.LinAlg.EigSchur.dlanv2(a11, a12, a21, a22)
+    t = dla_store(t, d2, n, j1, 3, 3)
+    t = t |> f_set(n, j1, j1, t33o) |> f_set(n, j2, j1, 0.0) |> f_set(n, j3, j1, 0.0)
+    q = if wantq, do: dla_q(q, n, j1, 3, uf, tau), else: q
+    {t, q, 0}
+  end
 
-    h3 = [[a11, a12, a13], [a21, a22, a23], [a31, a32, a33]]
-    v = dlaqr1(3, h3, wr1, wi1, a33, 0.0)
-    v_norm = Enum.reduce(v, 0.0, fn x, acc -> acc + abs(x) end)
-    v = if v_norm == 0.0, do: [0.0, 0.0, 0.0], else: Enum.map(v, &(&1 / v_norm))
+  defp swap_2x2_2x2(t, q, n, j1, wantq) do
+    j2 = j1 + 1
+    j3 = j1 + 2
+    j4 = j1 + 3
+    nd = 4
+    d = for i <- 1..nd, j <- 1..nd, do: f_get(t, n, j1 + i - 1, j1 + j - 1)
+    dnorm = Enum.reduce(d, 0.0, &max(abs(&1), &2))
+    eps = Nx.LinAlg.EigUtil.dlamch("P")
+    smlnum = Nx.LinAlg.EigUtil.dlamch("S") / eps
+    thresh = max(10.0 * eps * dnorm, smlnum)
+    tl = [Enum.at(d, 0), Enum.at(d, 1), Enum.at(d, 4), Enum.at(d, 5)]
+    tr = [Enum.at(d, 10), Enum.at(d, 11), Enum.at(d, 14), Enum.at(d, 15)]
+    b12 = [Enum.at(d, 2), Enum.at(d, 6), Enum.at(d, 3), Enum.at(d, 7)]
+    {scale, xf, _, _} = dlasy2(false, false, -1, 2, 2, tl, tr, b12)
 
-    {v_ref, tau_b, _beta_b} = Nx.LinAlg.EigHouseholder.dlarfg(Nx.tensor(v, type: :f64))
-    v_b = Nx.to_flat_list(v_ref)
-    t1b = Enum.at(v_b, 0); t2b = t1b * Enum.at(v_b, 1); t3b = t1b * Enum.at(v_b, 2)
+    u1 = [-Enum.at(xf, 0), -Enum.at(xf, 1), scale]
+    {u1r, tau1, _} = Nx.LinAlg.EigHouseholder.dlarfg(Nx.tensor(u1, type: :f64))
+    u1f = Nx.to_flat_list(u1r)
+    u1f = [1.0, Enum.at(u1f, 1), Enum.at(u1f, 2)]
+    temp = -tau1 * (Enum.at(xf, 2) + u1f[1] * Enum.at(xf, 3))
+    u2 = [-temp * u1f[1] - Enum.at(xf, 3), -temp * u1f[2], scale]
+    {u2r, tau2, _} = Nx.LinAlg.EigHouseholder.dlarfg(Nx.tensor(u2, type: :f64))
+    u2f = Nx.to_flat_list(u2r)
+    u2f = [1.0, Enum.at(u2f, 1), Enum.at(u2f, 2)]
 
-    Enum.reduce((j1 + 2)..n, t, fn j, acc ->
-      refsum = f_get(acc, n, j1, j) + Enum.at(v_b, 1) * f_get(acc, n, j1 + 1, j) +
-               Enum.at(v_b, 2) * f_get(acc, n, j1 + 2, j)
-      acc |> f_set(n, j1, j, f_get(acc, n, j1, j) - refsum * t1b)
-          |> f_set(n, j1 + 1, j, f_get(acc, n, j1 + 1, j) - refsum * t2b)
-          |> f_set(n, j1 + 2, j, f_get(acc, n, j1 + 2, j) - refsum * t3b)
-    end)
+    d2 = dla_hh("L", 3, 4, u1f, tau1, d)
+    d2 = dla_hh("R", 4, 3, u1f, tau1, d2)
+    d2 = dla_hh("L", 3, 4, u2f, tau2, d2)
+    d2 = dla_hh("R", 4, 3, u2f, tau2, d2)
 
-    Enum.reduce(1..(j1 + 2), t, fn i, acc ->
-      refsum = f_get(acc, n, i, j1) + Enum.at(v_b, 1) * f_get(acc, n, i, j1 + 1) +
-               Enum.at(v_b, 2) * f_get(acc, n, i, j1 + 2)
-      acc |> f_set(n, i, j1, f_get(acc, n, i, j1) - refsum * t1b)
-          |> f_set(n, i, j1 + 1, f_get(acc, n, i, j1 + 1) - refsum * t2b)
-          |> f_set(n, i, j1 + 2, f_get(acc, n, i, j1 + 2) - refsum * t3b)
-    end)
+    if max(
+         abs(d4_d(d2, 3, 1)),
+         max(abs(d4_d(d2, 3, 2)), max(abs(d4_d(d2, 4, 1)), abs(d4_d(d2, 4, 2))))
+       ) > thresh, do: {t, q, 1}
 
-    q = if wantq do
-      Enum.reduce(1..n, q, fn i, acc ->
-        refsum = f_get(acc, n, i, j1) + Enum.at(v_b, 1) * f_get(acc, n, i, j1 + 1) +
-                 Enum.at(v_b, 2) * f_get(acc, n, i, j1 + 2)
-        acc |> f_set(n, i, j1, f_get(acc, n, i, j1) - refsum * t1b)
-            |> f_set(n, i, j1 + 1, f_get(acc, n, i, j1 + 1) - refsum * t2b)
-            |> f_set(n, i, j1 + 2, f_get(acc, n, i, j1 + 2) - refsum * t3b)
-      end)
-    else
-      q
-    end
+    t = dla_store(t, d2, n, j1, 4, 4)
 
-    hk1k = f_get(t, n, j1 + 1, j1)
-    if abs(hk1k) <= thresh do
-      t = f_set(t, n, j1 + 1, j1, 0.0)
-    end
+    t =
+      t
+      |> f_set(n, j3, j1, 0.0)
+      |> f_set(n, j3, j2, 0.0)
+      |> f_set(n, j4, j1, 0.0)
+      |> f_set(n, j4, j2, 0.0)
+
+    q =
+      if wantq do
+        q = dla_q(q, n, j1, 3, u1f, tau1)
+        dla_q(q, n, j2, 3, u2f, tau2)
+      else
+        q
+      end
 
     {t, q, 0}
   end
 
-  # Swap 2x2 with 2x2 (simplified — use multiple 1x1/2x2 swaps)
-  defp swap_2x2_2x2(t, q, n, j1, wantq) do
-    # Split the first 2x2 block into two 1x1s using DLANV2
-    {aa, bb, cc, dd, _r1r, r1i, _r2r, _r2i, cs, sn} =
-      Nx.LinAlg.EigSchur.dlanv2(
-        f_get(t, n, j1, j1), f_get(t, n, j1, j1 + 1),
-        f_get(t, n, j1 + 1, j1), f_get(t, n, j1 + 1, j1 + 1))
+  # DLASY2 helpers
+  defp dla_hh("L", m, n, v, tau, c) do
+    Enum.reduce(0..(n - 1), c, fn j, a ->
+      s =
+        Enum.reduce(0..(m - 1), 0.0, fn i, acc -> acc + Enum.at(v, i) * d4_d(a, i + 1, j + 1) end)
 
-    t = t |> f_set(n, j1, j1, aa) |> f_set(n, j1, j1 + 1, bb)
-          |> f_set(n, j1 + 1, j1, cc) |> f_set(n, j1 + 1, j1 + 1, dd)
+      t = tau * s
 
-    # Apply rotation to remaining columns
-    Enum.reduce((j1 + 2)..n, t, fn j, acc ->
-      t1 = f_get(acc, n, j1, j); t2 = f_get(acc, n, j1 + 1, j)
-      acc |> f_set(n, j1, j, cs * t1 + sn * t2)
-          |> f_set(n, j1 + 1, j, -sn * t1 + cs * t2)
-    end)
-
-    Enum.reduce(1..(j1 - 1), t, fn i, acc ->
-      t1 = f_get(acc, n, i, j1); t2 = f_get(acc, n, i, j1 + 1)
-      acc |> f_set(n, i, j1, cs * t1 + sn * t2)
-          |> f_set(n, i, j1 + 1, -sn * t1 + cs * t2)
-    end)
-
-    q = if wantq do
-      Enum.reduce(1..n, q, fn i, acc ->
-        q1 = f_get(acc, n, i, j1); q2 = f_get(acc, n, i, j1 + 1)
-        acc |> f_set(n, i, j1, cs * q1 + sn * q2)
-            |> f_set(n, i, j1 + 1, -sn * q1 + cs * q2)
+      Enum.reduce(0..(m - 1), a, fn i, a2 ->
+        la_set(a2, i * 4 + j, d4_d(a2, i + 1, j + 1) - t * Enum.at(v, i))
       end)
-    else
-      q
-    end
+    end)
+  end
 
-    if r1i == 0.0 do
-      # Two real eigenvalues — use two 1x1↔2x2 swaps
-      {t, q, _} = swap_1x1_2x2(t, q, n, j1, wantq)
-      {t, q, _} = swap_1x1_2x2(t, q, n, j1 + 1, wantq)
-      {t, q, 0}
-    else
-      # Complex pair — use 2x2↔1x1 then 2x2↔1x1
-      {t, q, _} = swap_2x2_1x1(t, q, n, j1, wantq)
-      {t, q, _} = swap_2x2_1x1(t, q, n, j1 + 1, wantq)
-      {t, q, 0}
-    end
+  defp dla_hh("R", m, n, v, tau, c) do
+    Enum.reduce(0..(m - 1), c, fn i, a ->
+      s =
+        Enum.reduce(0..(n - 1), 0.0, fn j, acc -> acc + d4_d(a, i + 1, j + 1) * Enum.at(v, j) end)
+
+      t = tau * s
+
+      Enum.reduce(0..(n - 1), a, fn j, a2 ->
+        la_set(a2, i * 4 + j, d4_d(a2, i + 1, j + 1) - t * Enum.at(v, j))
+      end)
+    end)
+  end
+
+  defp d4_d(f, i, j), do: Enum.at(f, (i - 1) * 4 + (j - 1))
+  defp la_set(l, i, v), do: List.replace_at(l, i, v)
+
+  defp dla_store(t, d, n, r0, nr, nc) do
+    Enum.reduce(0..(nr - 1), t, fn i, a ->
+      Enum.reduce(0..(nc - 1), a, fn j, a2 ->
+        f_set(a2, n, r0 + i, r0 + j, Enum.at(d, i * 4 + j))
+      end)
+    end)
+  end
+
+  defp dla_q(q, n, c0, nc, v, tau) do
+    Enum.reduce(1..n, q, fn i, a ->
+      s =
+        Enum.reduce(1..nc, 0.0, fn k, acc ->
+          acc + Enum.at(v, k - 1) * f_get(a, n, i, c0 + k - 1)
+        end)
+
+      t = tau * s
+
+      Enum.reduce(1..nc, a, fn k, a2 ->
+        f_set(a2, n, i, c0 + k - 1, f_get(a2, n, i, c0 + k - 1) - t * Enum.at(v, k - 1))
+      end)
+    end)
   end
 
   # ──────────────────────────────────────
@@ -1076,4 +1078,206 @@ defmodule Nx.LinAlg.EigMultiShiftQR do
     z = if wantz, do: z_out, else: Nx.eye(n, type: :f64)
     {h_out, wr, wi, z, info}
   end
+
+  # ===================== DLASY2 (LAPACK Sylvester solver) =====================
+
+  def dlasy2(ltranl, ltranr, isgn, n1, n2, tl, tr, rhs) do
+    eps = Nx.LinAlg.EigUtil.dlamch("P")
+    smlnum = Nx.LinAlg.EigUtil.dlamch("S") / eps
+
+    case n1 + n1 + n2 - 2 do
+      1 ->
+        tau1 = Enum.at(tl, 0) + isgn * Enum.at(tr, 0)
+        {tau1, inf} = if abs(tau1) <= smlnum, do: {smlnum, 1}, else: {tau1, 0}
+        g = abs(Enum.at(rhs, 0))
+        sc = if smlnum * g > abs(tau1), do: 1.0 / g, else: 1.0
+        x1 = Enum.at(rhs, 0) * sc / tau1
+        {sc, [x1, 0, 0, 0], abs(x1), inf}
+
+      2 ->
+        tli = Enum.at(tl, 0)
+        t0 = Enum.at(tr, 0)
+        t1 = Enum.at(tr, 1)
+        t2 = Enum.at(tr, 2)
+        t3 = Enum.at(tr, 3)
+        a = tli + isgn * t0
+        d = tli + isgn * t3
+        {b, c} = if ltranr, do: {isgn * t2, isgn * t1}, else: {isgn * t1, isgn * t2}
+        smn = max(eps * max(abs(tli), max(abs(t0), max(abs(t1), max(abs(t2), abs(t3))))), smlnum)
+        sy2(a, b, c, d, Enum.at(rhs, 0), Enum.at(rhs, 1), smn)
+
+      3 ->
+        t0 = Enum.at(tr, 0)
+        l0 = Enum.at(tl, 0)
+        l1 = Enum.at(tl, 1)
+        l2 = Enum.at(tl, 2)
+        l3 = Enum.at(tl, 3)
+        a = l0 + isgn * t0
+        d = l3 + isgn * t0
+        {b, c} = if ltranl, do: {l1, l2}, else: {l2, l1}
+        smn = max(eps * max(abs(t0), max(abs(l0), max(abs(l1), max(abs(l2), abs(l3))))), smlnum)
+        sy2(a, b, c, d, Enum.at(rhs, 0), Enum.at(rhs, 1), smn)
+
+      4 ->
+        l0 = Enum.at(tl, 0)
+        l1 = Enum.at(tl, 1)
+        l2 = Enum.at(tl, 2)
+        l3 = Enum.at(tl, 3)
+        t0 = Enum.at(tr, 0)
+        t1 = Enum.at(tr, 1)
+        t2 = Enum.at(tr, 2)
+        t3 = Enum.at(tr, 3)
+        b11 = Enum.at(rhs, 0)
+        b21 = Enum.at(rhs, 1)
+        b12 = Enum.at(rhs, 2)
+        b22 = Enum.at(rhs, 3)
+
+        smn =
+          max(
+            eps *
+              max(
+                abs(t0),
+                max(
+                  abs(t1),
+                  max(abs(t2), max(abs(t3), max(abs(l0), max(abs(l1), max(abs(l2), abs(l3))))))
+                )
+              ),
+            smlnum
+          )
+
+        sy4(l0, l1, l2, l3, t0, t1, t2, t3, b11, b21, b12, b22, smn, isgn, ltranl, ltranr, smlnum)
+    end
+  end
+
+  defp sy2(a, b, c, d, b1, b2, smn) do
+    {x1, x2} =
+      if abs(a) >= abs(c) do
+        m = c / a
+        d2 = d - m * b
+        b22 = b2 - m * b1
+        d2 = if abs(d2) <= smn, do: smn, else: d2
+        x2v = b22 / d2
+        {(b1 - b * x2v) / a, x2v}
+      else
+        m = a / c
+        bp = b - m * d
+        b12 = b1 - m * b2
+        bp = if abs(bp) <= smn, do: smn, else: bp
+        x2v = b12 / bp
+        {(b2 - d * x2v) / c, x2v}
+      end
+
+    sc =
+      if 2 * smn * abs(x1) > 1 or 2 * smn * abs(x2) > 1,
+        do: 0.5 / max(abs(x1), abs(x2)),
+        else: 1.0
+
+    {sc, [x1 * sc, 0, x2 * sc, 0], abs(x1 * sc) + abs(x2 * sc), 0}
+  end
+
+  defp sy4(a, b, c, d, e, f, g, h, b11, b21, b12, b22, smn, sgn, ltranl, ltranr, sml) do
+    t = for _ <- 1..16, do: 0.0
+    t = set(t, 0, a + sgn * e)
+    t = set(t, 5, d + sgn * e)
+    t = set(t, 10, a + sgn * h)
+    t = set(t, 15, d + sgn * h)
+
+    t =
+      if ltranl,
+        do: t |> set(1, c) |> set(4, b) |> set(11, c) |> set(14, b),
+        else: t |> set(1, b) |> set(4, c) |> set(11, b) |> set(14, c)
+
+    t =
+      if ltranr,
+        do: t |> set(2, sgn * f) |> set(7, sgn * f) |> set(8, sgn * g) |> set(13, sgn * g),
+        else: t |> set(2, sgn * g) |> set(7, sgn * g) |> set(8, sgn * f) |> set(13, sgn * f)
+
+    b = [b11, b21, b12, b22]
+    n = 4
+    {t2, b2} = ge4(t, b, smn)
+
+    sc =
+      if Enum.any?([0, 1, 2, 3], fn i ->
+           8 * sml * abs(Enum.at(b2, i)) > abs(Enum.at(t2, i * 4 + i))
+         end) do
+        0.125 / Enum.reduce([0, 1, 2, 3], 0.0, fn i, mx -> max(abs(Enum.at(b2, i)), mx) end)
+      else
+        1.0
+      end
+
+    bs = Enum.map(b2, &(&1 * sc))
+    xs = [0.0, 0.0, 0.0, 0.0]
+    xs = set(xs, 3, Enum.at(bs, 3) / Enum.at(t2, 3 * 4 + 3))
+
+    xs =
+      set(
+        xs,
+        2,
+        (Enum.at(bs, 2) - Enum.at(t2, 2 * 4 + 3) * Enum.at(xs, 3)) / Enum.at(t2, 2 * 4 + 2)
+      )
+
+    xs =
+      set(
+        xs,
+        1,
+        (Enum.at(bs, 1) - Enum.at(t2, 1 * 4 + 2) * Enum.at(xs, 2) -
+           Enum.at(t2, 1 * 4 + 3) * Enum.at(xs, 3)) / Enum.at(t2, 1 * 4 + 1)
+      )
+
+    xs =
+      set(
+        xs,
+        0,
+        (Enum.at(bs, 0) - Enum.at(t2, 0 * 4 + 1) * Enum.at(xs, 1) -
+           Enum.at(t2, 0 * 4 + 2) * Enum.at(xs, 2) - Enum.at(t2, 0 * 4 + 3) * Enum.at(xs, 3)) /
+          Enum.at(t2, 0 * 4 + 0)
+      )
+
+    xn = max(abs(Enum.at(xs, 0)) + abs(Enum.at(xs, 2)), abs(Enum.at(xs, 1)) + abs(Enum.at(xs, 3)))
+    {sc, xs, xn, 0}
+  end
+
+  defp ge4(t, b, smn) do
+    n = 4
+
+    Enum.reduce(0..(n - 2), {t, b}, fn col, {ta, ba} ->
+      {pv, _} =
+        Enum.reduce(col..(n - 1), {col, -1.0}, fn r, {br, bv} ->
+          if abs(Enum.at(ta, r * n + col)) > bv,
+            do: {r, abs(Enum.at(ta, r * n + col))},
+            else: {br, bv}
+        end)
+
+      {ta, ba} =
+        if pv != col do
+          ta =
+            Enum.reduce(0..(n - 1), ta, fn c, m ->
+              set(m, col * n + c, Enum.at(m, pv * n + c))
+              |> set(pv * n + c, Enum.at(m, col * n + c))
+            end)
+
+          {ta, ba |> set(col, Enum.at(ba, pv)) |> set(pv, Enum.at(ba, col))}
+        else
+          {ta, ba}
+        end
+
+      pv2 = abs(Enum.at(ta, col * n + col))
+      pv2 = if pv2 < smn, do: smn, else: pv2
+      # Fix: use pv2 as the actual value, not as boolean
+      piv_val = Enum.at(ta, col * n + col)
+      piv_val = if abs(piv_val) < smn, do: smn, else: piv_val
+
+      Enum.reduce((col + 1)..(n - 1), {ta, ba}, fn r, {tb, bb} ->
+        mult = Enum.at(tb, r * n + col) / piv_val
+        tb = set(tb, r * n + col, mult)
+        bb = set(bb, r, Enum.at(bb, r) - mult * Enum.at(bb, col))
+
+        {Enum.reduce((col + 1)..(n - 1), tb, fn c, tc ->
+           set(tc, r * n + c, Enum.at(tc, r * n + c) - mult * Enum.at(tc, col * n + c))
+         end), bb}
+      end)
+    end)
+  end
+
+  defp set(l, i, v), do: List.replace_at(l, i, v)
 end
