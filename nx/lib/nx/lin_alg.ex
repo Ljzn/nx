@@ -1422,6 +1422,54 @@ defmodule Nx.LinAlg do
   end
 
   @doc """
+  Calculates the eigenvalues and right eigenvectors of a general square matrix.
+
+  The matrix does not need to be symmetric.
+
+  ## Options
+
+    * `:max_iter` - `integer`. Defaults to `100`
+      Maximum number of QR iterations.
+
+    * `:eps` - `float`. Defaults to `1.0e-10`
+      Convergence threshold for subdiagonal elements.
+
+  ## Examples
+
+      iex> {eigenvals, eigenvecs} = Nx.LinAlg.eig(Nx.tensor([[3, -1], [0, 2]]))
+      iex> eigenvals
+      #Nx.Tensor<
+        c128[2]
+        [3.0+0.0i, 2.0+0.0i]
+      >
+  """
+  def eig(tensor, opts \\ []) do
+    opts = keyword!(opts, max_iter: 100, eps: 1.0e-10)
+    _ = opts[:max_iter] || raise ArgumentError, "missing option :max_iter"
+
+    %T{vectorized_axes: vectorized_axes} = tensor = Nx.to_tensor(tensor)
+    %T{type: type, shape: shape} = tensor = Nx.devectorize(tensor)
+
+    output_type = Nx.Type.to_floating(type)
+
+    {eigenvals_shape, eigenvecs_shape} = Nx.Shape.eig(shape)
+    rank = tuple_size(shape)
+
+    eigenvecs_name = List.duplicate(nil, rank)
+    eigenvals_name = tl(eigenvecs_name)
+
+    output =
+      {%{tensor | names: eigenvals_name, type: output_type, shape: eigenvals_shape},
+       %{tensor | names: eigenvecs_name, type: output_type, shape: eigenvecs_shape}}
+
+    Nx.block(struct!(Nx.Block.LinAlg.Eig, opts), [tensor], output, fn %Nx.Block.LinAlg.Eig{},
+                                                                       t ->
+      Nx.LinAlg.BlockEig.eig(t, opts)
+    end)
+    |> Nx.vectorize(vectorized_axes)
+  end
+
+  @doc """
   Calculates the Singular Value Decomposition of batched 2-D matrices.
 
   It returns `{u, s, vt}` where the elements of `s` are sorted

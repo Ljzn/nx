@@ -26,6 +26,10 @@ defmodule Nx.Block.LinAlg.SVD do
   defstruct max_iter: 100, full_matrices?: true
 end
 
+defmodule Nx.Block.LinAlg.Eig do
+  defstruct max_iter: 100, eps: 1.0e-10, balance: true
+end
+
 defmodule Nx.Block.LinAlg.LU do
   defstruct eps: 1.0e-10
 end
