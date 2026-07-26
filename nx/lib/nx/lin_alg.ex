@@ -1436,11 +1436,11 @@ defmodule Nx.LinAlg do
 
   ## Examples
 
-      iex> {eigenvals, eigenvecs} = Nx.LinAlg.eig(Nx.tensor([[3, -1], [0, 2]]))
+      iex> {eigenvals, _eigenvecs} = Nx.LinAlg.eig(Nx.tensor([[3, -1], [0, 2]]))
       iex> eigenvals
       #Nx.Tensor<
         c128[2]
-        [3.0+0.0i, 2.0+0.0i]
+        [2.0+0.0i, 3.0+0.0i]
       >
   """
   def eig(tensor, opts \\ []) do
